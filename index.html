@@ -2,14 +2,92 @@
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Painel JUCA</title>
 <style>body{font:16px system-ui;background:#f1f5f9;color:#17243a;margin:0}header{background:#102a43;color:white;padding:18px 5%}main{max-width:1000px;margin:24px auto;padding:0 15px}.card{background:white;border-radius:12px;padding:22px;margin-bottom:16px;box-shadow:0 2px 8px #0001}input,select,textarea{box-sizing:border-box;width:100%;padding:11px;margin:6px 0 12px;border:1px solid #ccd5df;border-radius:7px}button{background:#1264a3;color:white;border:0;border-radius:7px;padding:11px 18px;cursor:pointer}button:disabled{opacity:.5}.hide{display:none}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid #e3e8ed;padding:13px 0}.muted{color:#667085}.small{font-size:13px}.error{color:#b42318}h1{font-size:24px}</style></head>
 <body><header><h1>JUCA | Agenda e Financeiro</h1><span id="who"></span> <button id="logout" class="hide">Sair</button></header><main>
-<section id="auth" class="card"><h2>Entrar no Painel JUCA</h2><p class="muted">Acesso somente para usuários autorizados no Supabase.</p><label>E-mail<input id="email" type="email" autocomplete="username"></label><label>Senha<input id="password" type="password" autocomplete="current-password"></label><button id="login">Entrar</button><p id="authmsg"></p></section>
+<section id="auth" class="card"><h2>Entrar no Painel JUCA</h2><p class="muted">Acesso somente para usuários autorizados no Supabase.</p><label>E-mail<input id="email" type="email" autocomplete="username"></label><label>Senha<input id="password" type="password" autocomplete="current-password"></label><button id="login">Entrar</button><button id="forgot" type="button">Esqueci minha senha</button><p id="authmsg" role="status" aria-live="polite"></p></section>
+<section id="recovery" class="card hide"><h2>Definir nova senha</h2><p>Informe e confirme sua nova senha para o Painel JUCA.</p><form id="recoveryform"><label>Nova senha<input id="newpassword" type="password" autocomplete="new-password" minlength="6" required></label><label>Confirmar nova senha<input id="confirmpassword" type="password" autocomplete="new-password" minlength="6" required></label><button id="updatepassword" type="submit">Salvar nova senha</button></form><p id="recoverymsg" role="status" aria-live="polite"></p><button id="backlogin" type="button">Voltar ao login</button></section>
 <section id="dashboard" class="hide"><div class="grid"><div class="card">Vence hoje<h1 id="today">0</h1></div><div class="card">Próximos 7 dias<h1 id="soon">0</h1></div><div class="card">Pendentes<h1 id="pending">0</h1></div></div>
 <div class="card"><h2>Adicionar registro</h2><div class="grid"><label>Categoria<select id="scope"><option value="juca">JUCA</option><option value="pessoal">Pessoal</option></select></label><label>Tipo<select id="kind"><option value="tarefa">Tarefa</option><option value="compromisso">Compromisso</option><option value="boleto">Boleto</option><option value="fatura">Fatura</option><option value="nota_fiscal">Nota fiscal</option><option value="email_importante">E-mail importante</option></select></label></div><label>Título<input id="title"></label><div class="grid"><label>Vencimento / horário<input id="due" type="datetime-local"></label><label>Valor R$<input id="amount" type="number" min="0" step=".01"></label></div><label>Responsável<input id="responsible" placeholder="A confirmar"></label><label>Próximo passo<input id="next" placeholder="A confirmar"></label><button id="save">Salvar</button><p id="savemsg"></p></div>
 <div class="card"><h2>Agenda e pendências</h2><p class="muted small">Horários em America/Cuiaba. Gmail e Calendar ainda não integrados. Nenhum pagamento é realizado.</p><button id="refresh">Atualizar</button><div id="items"></div></div></section></main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script><script>
+const recoveryParams=new URLSearchParams(location.hash.slice(1));
+let recoveryError=recoveryParams.has('error')||new URLSearchParams(location.search).has('error');
+const recoveryKey='juca-password-recovery';
+function rememberedRecovery(){try{return sessionStorage.getItem(recoveryKey)==='1'}catch{return false}}
+let recovering=recoveryParams.get('type')==='recovery'||rememberedRecovery();
+function rememberRecovery(active){try{active?sessionStorage.setItem(recoveryKey,'1'):sessionStorage.removeItem(recoveryKey)}catch{}}
+function clearAuthUrl(){history.replaceState(null,'',location.pathname)}
+const panelUrl='https://rafaeljucacartuchos-ship-it.github.io/painel-juca/';
 const client=window.supabase.createClient('https://klpbqpcwdhuegcmoqspj.supabase.co','sb_publishable_bPZBZOZQs01sI9yR85lfkg_9wVK41xi');const $=id=>document.getElementById(id);let user=null;const closed=s=>['concluido','pago','cancelado'].includes(s);const fmt=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Cuiaba',year:'numeric',month:'2-digit',day:'2-digit'});const display=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Cuiaba',dateStyle:'short',timeStyle:'short'});function node(tag,text){const e=document.createElement(tag);e.textContent=text;return e}
-async function session(){const r=await client.auth.getUser();user=r.data.user;$('auth').classList.toggle('hide',!!user);$('dashboard').classList.toggle('hide',!user);$('logout').classList.toggle('hide',!user);$('who').textContent=user?.email||'';if(user)await load()}
+function showRecovery(){
+  recovering=true;rememberRecovery(true);
+  $('auth').classList.add('hide');$('dashboard').classList.add('hide');
+  $('logout').classList.add('hide');$('who').textContent='';
+  $('recovery').classList.remove('hide');
+}
+function message(id,text,error=false){$(id).textContent=text;$(id).classList.toggle('error',error)}
+client.auth.onAuthStateChange((event)=>{
+  // Keep this callback synchronous: auth requests here can deadlock the SDK.
+  if(event==='PASSWORD_RECOVERY'){showRecovery();clearAuthUrl()}
+  if(event==='SIGNED_OUT'){user=null;$('dashboard').classList.add('hide')}
+});
+async function session(){
+  if(recoveryError){    recoveryError=false;
+    recovering=false;rememberRecovery(false);clearAuthUrl();
+    message('authmsg','Link inválido ou expirado. Informe seu e-mail e solicite um novo link em “Esqueci minha senha”.',true);
+    return;
+  }
+  if(recovering)showRecovery();
+  const r=await client.auth.getUser();user=r.data.user;
+  if(recovering){
+    showRecovery();clearAuthUrl();
+    if(r.error||!user){
+      $('updatepassword').disabled=true;
+      message('recoverymsg','Não foi possível validar a recuperação. Volte ao login e solicite um novo link.',true);
+    }
+    return;
+  }
+  $('auth').classList.toggle('hide',!!user);$('dashboard').classList.toggle('hide',!user);
+  $('logout').classList.toggle('hide',!user);$('who').textContent=user?.email||'';
+  if(user)await load();
+}
+$('forgot').onclick=async()=>{
+  const email=$('email').value.trim();
+  if(!email||!$('email').checkValidity()){message('authmsg','Informe um e-mail válido no campo E-mail.',true);$('email').focus();return}
+  $('forgot').disabled=true;message('authmsg','Solicitando link de recuperação…');
+  try{
+    const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:panelUrl});
+    if(error)throw error;
+    message('authmsg','Se houver uma conta para este e-mail, você receberá um link para redefinir a senha. Confira também o spam.');
+  }catch(error){message('authmsg','Não foi possível enviar o link: '+(error.message||'Verifique sua conexão e tente novamente.'),true)}
+  finally{$('forgot').disabled=false}
+};
+$('recoveryform').onsubmit=async(event)=>{
+  event.preventDefault();
+  if($('updatepassword').disabled)return;
+  const password=$('newpassword').value;
+  if(password.length<6){message('recoverymsg','Use uma senha com pelo menos 6 caracteres.',true);return}
+  if(password!==$('confirmpassword').value){message('recoverymsg','As senhas não coincidem.',true);return}
+  $('updatepassword').disabled=true;$('backlogin').disabled=true;
+  message('recoverymsg','Salvando nova senha…');
+  let updated=false;
+  try{
+    const {error}=await client.auth.updateUser({password});
+    if(error)throw error;
+    updated=true;
+    $('newpassword').value='';$('confirmpassword').value='';$('password').value='';
+    $('recoveryform').classList.add('hide');
+    message('recoverymsg','Senha atualizada com sucesso. Clique em “Voltar ao login” para entrar com a nova senha.');
+  }catch(error){message('recoverymsg','Não foi possível alterar a senha: '+(error.message||'Verifique sua conexão e tente novamente.'),true)}
+  finally{$('updatepassword').disabled=updated;$('backlogin').disabled=false}
+};
+$('backlogin').onclick=async()=>{
+  $('backlogin').disabled=true;
+  try{
+    const {error}=await client.auth.signOut({scope:'local'});
+    if(error)throw error;
+    recovering=false;rememberRecovery(false);clearAuthUrl();location.reload();
+  }catch(error){message('recoverymsg','Não foi possível voltar ao login: '+(error.message||'Tente novamente.'),true);$('backlogin').disabled=false}
+};
 async function load(){const {data,error}=await client.from('juca_panel_items').select('*').order('due_at',{ascending:true,nullsFirst:false}).limit(500);if(error){$('items').textContent='Erro: '+error.message;return}const items=data||[],now=new Date(),today=fmt.format(now),soon=new Date(now.getTime()+7*86400000);$('today').textContent=items.filter(x=>x.due_at&&fmt.format(new Date(x.due_at))===today&&!closed(x.status)).length;$('soon').textContent=items.filter(x=>x.due_at&&fmt.format(new Date(x.due_at))>today&&new Date(x.due_at)<=soon&&!closed(x.status)).length;$('pending').textContent=items.filter(x=>!closed(x.status)).length;const root=$('items');root.replaceChildren();if(!items.length)root.append(node('p','Nenhum registro cadastrado.'));for(const x of items){const row=node('div','');row.className='row';const left=node('div','');left.append(node('strong',x.title),node('div',(x.scope==='pessoal'?'Pessoal':'JUCA')+' · '+x.kind+' · '+(x.due_at?display.format(new Date(x.due_at)):'Sem prazo')),node('div','Situação: '+x.status+(x.amount!==null?' · R$ '+Number(x.amount).toFixed(2):'')));if(x.next_step)left.append(node('div','Próximo passo: '+x.next_step));row.append(left);if(!closed(x.status)){const b=node('button','Concluir');b.onclick=async()=>{b.disabled=true;const r=await client.from('juca_panel_items').update({status:'concluido'}).eq('id',x.id).eq('owner_id',user.id);if(r.error)alert(r.error.message);await load()};row.append(b)}root.append(row)}}
 $('login').onclick=async()=>{const r=await client.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});$('authmsg').textContent=r.error?.message||'';if(!r.error)await session()};$('logout').onclick=async()=>{await client.auth.signOut();await session()};$('refresh').onclick=load;
-$('save').onclick=async()=>{if(!$('title').value.trim()){$('savemsg').textContent='Informe o título';return}const due=$('due').value;const payload={owner_id:user.id,kind:$('kind').value,scope:$('scope').value,title:$('title').value.trim(),responsible:$('responsible').value.trim()||null,next_step:$('next').value.trim()||null,amount:$('amount').value?Number($('amount').value):null,due_at:due?new Date(due+'-04:00').toISOString():null,status:'a_confirmar',source_type:'manual'};const r=await client.from('juca_panel_items').insert(payload);$('savemsg').textContent=r.error?.message||'Salvo com sucesso';if(!r.error){$('title').value='';await load()}};session();
+$('save').onclick=async()=>{if(!$('title').value.trim()){$('savemsg').textContent='Informe o título';return}const due=$('due').value;const payload={owner_id:user.id,kind:$('kind').value,scope:$('scope').value,title:$('title').value.trim(),responsible:$('responsible').value.trim()||null,next_step:$('next').value.trim()||null,amount:$('amount').value?Number($('amount').value):null,due_at:due?new Date(due+'-04:00').toISOString():null,status:'a_confirmar',source_type:'manual'};const r=await client.from('juca_panel_items').insert(payload);$('savemsg').textContent=r.error?.message||'Salvo com sucesso';if(!r.error){$('title').value='';await load()}};session().catch(()=>message(recovering?'recoverymsg':'authmsg','Não foi possível verificar sua sessão. Verifique sua conexão e recarregue a página.',true));
 </script></body></html>
