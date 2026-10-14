@@ -10,3 +10,6 @@
 .authwrap .brand-logo{max-width:365px;margin:0 auto 26px}
 .authwrap .brand-logo small{font-size:11px;color:#607781}
 @media(max-width:720px){.mobile-logo{width:170px;margin-bottom:14px}.mobile-logo .logo-window{aspect-ratio:2.4}}
+
+#chatlog{display:flex;flex-direction:column;gap:12px;max-height:50vh;overflow:auto;margin:20px 0}.chatbubble{white-space:pre-wrap;overflow-wrap:anywhere;padding:16px;border-radius:14px;margin:0;max-width:92%;line-height:1.65}.chatbubble.user{background:#e0f4ee;align-self:flex-end}.chatbubble.assistant{background:#f0f3f7;align-self:flex-start}#chatform textarea{width:100%;min-height:100px;margin:8px 0}#chatarea .sectionhead{flex-wrap:wrap;gap:12px}#chatarea a{color:#136354}#chatstatus{font-size:14px}
+
