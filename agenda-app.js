@@ -48,8 +48,41 @@ function appendMailSources(body,x){
   const section=node('div','');section.className='detailtext';
   section.append(node('strong',source.subject||'E-mail de origem'),node('p','Remetente: '+(source.sender||'A confirmar')));
   if(source.received_at&&!Number.isNaN(Date.parse(source.received_at)))section.append(node('p','Recebido em '+new Intl.DateTimeFormat('pt-BR',{timeZone:A.zone,dateStyle:'short',timeStyle:'short'}).format(new Date(source.received_at))));
-  try{const url=new URL(source.url);if(url.protocol==='https:'&&url.hostname==='mail.google.com'){const link=node('a','Abrir e-mail e anexos no Gmail');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';section.append(link)}}catch{}
+  const mail=gmailSourceLinks(source,m);
+  const addLink=(label,url)=>{const p=node('p','');const link=node('a',label);link.href=url;link.target='_blank';link.rel='noopener noreferrer';p.append(link);section.append(p)};
+  if(mail.direct)addLink('Abrir e-mail e anexos no Gmail',mail.direct);
+  if(mail.search)addLink(mail.direct?'Não abriu? Buscar este e-mail no Gmail':'Buscar e-mail de origem no Gmail',mail.search);
+  if(mail.direct||mail.search)section.append(node('p','Use a conta '+(mail.account||'que recebeu este e-mail')+'. No celular, se o aplicativo abrir apenas a caixa geral, abra o link no navegador.'));
+  if(mail.query){const hint=node('details','');hint.append(node('summary','Busca para copiar no Gmail'),node('p',mail.query));section.append(hint)}
+  if(!mail.direct&&!mail.search)section.append(node('p','Link da mensagem indisponível. Confira o remetente e o assunto no Gmail.'));
   for(const doc of Array.isArray(source.documents)?source.documents:[])section.append(node('p','Documento original: '+(doc.filename||doc.name||'Anexo no Gmail')));
   body.append(section);
  }
+}
+
+// Build links at display time; never rewrite imported records.
+function gmailSourceLinks(source,metadata={}){
+ let saved=null;try{const u=new URL(source.url);if(u.protocol==='https:'&&u.hostname==='mail.google.com')saved=u}catch{}
+ const account=source.mailbox||metadata.mailbox||saved?.searchParams.get('authuser')||'';
+ const base=new URL('https://mail.google.com/mail/');
+ if(account)base.searchParams.set('authuser',account);
+ // Request the full web interface so mobile redirects do not discard the message fragment.
+ base.searchParams.set('ui','2');
+ const hex=value=>typeof value==='string'&&/^[a-f0-9]{16,32}$/i.test(value)?value:null;
+ const legacy=saved?.hash.match(/^#(?:all|inbox|sent)\/([a-f0-9]{16,32})$/i)?.[1];
+ const id=hex(source.message_id)||hex(source.thread_id)||hex(legacy);
+ const rfc=String(source.rfc822_message_id||source.rfc822msgid||'').replace(/^<|>$/g,'').trim();
+ const quote=value=>String(value||'').replace(/["\\\r\n]/g,' ').trim();
+ const sender=String(source.sender||'').match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+/i)?.[0];
+ let query='';
+ if(rfc&&/^[^\s<>]+@[^\s<>]+$/.test(rfc))query='in:anywhere rfc822msgid:'+rfc;
+ else if(sender&&quote(source.subject)){
+  query='in:anywhere from:('+sender+') subject:("'+quote(source.subject)+'")';
+  const received=Date.parse(source.received_at);
+  if(!Number.isNaN(received))query+=' after:'+Math.floor(received/1000-86400)+' before:'+Math.ceil(received/1000+86400);
+ }
+ const search=query?base.href+'#search/'+encodeURIComponent(query):null;
+ const modern=saved?.hash.match(/^#(?:all|inbox|sent)\/([A-Za-z]{20,})$/)?.[1];
+ const direct=id?base.href+'#all/'+id:modern?base.href+'#all/'+modern:null;
+ return {direct,search,query,account};
 }
